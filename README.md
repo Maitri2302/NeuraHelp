@@ -28,12 +28,10 @@ Built with a **Next.js** frontend and a **FastAPI** backend, the system utilizes
 
 ### Backend
 - **Framework**: FastAPI (Python 3.10+)
-- **Background Tasks**: Celery & Redis
 - **AI/LLM**: LangChain, LangGraph, Groq API
 - **Embeddings**: `sentence-transformers` (`all-MiniLM-L6-v2`)
 - **Metadata Database**: PostgreSQL (via `asyncpg`)
 - **Vector Database**: Qdrant (Dockerized)
-- **Task Queue Broker**: Redis (Dockerized)
 
 ### Browser Extension
 - **Platform**: Google Chrome (Manifest V3)
@@ -62,14 +60,9 @@ docker-compose up -d
 cd backend
 uv pip install -r requirements.txt
 ```
-4. Run the FastAPI server in one terminal:
+4. Run the FastAPI server:
 ```bash
 uv run python -m uvicorn app.main:app --reload
-```
-5. Run the Celery worker in a second terminal (essential for processing background uploads and URL scraping):
-```bash
-# On Windows, use --pool=solo. On Linux/Mac, you can omit the pool flag.
-uv run celery -A app.core.celery_app worker --pool=solo --loglevel=info
 ```
 *The backend will be available at http://127.0.0.1:8000*
 

@@ -6,8 +6,7 @@ This document provides a comprehensive technical overview of the NeuraDesk (Pyth
 
 NeuraDesk is structured as a decoupled client-server architecture:
 - **Client**: Next.js single-page application (SPA) and Google Chrome Extension.
-- **API Gateway**: FastAPI server handling REST requests.
-- **Background Workers**: Celery workers utilizing Redis as a message broker for heavy tasks.
+- **API Gateway**: FastAPI server handling REST requests and synchronous document processing.
 - **AI/RAG Engine**: LangGraph and Groq-powered synthesis engine.
 - **Storage Layer**: PostgreSQL for structured metadata and Qdrant for vector embeddings.
 
@@ -15,10 +14,8 @@ NeuraDesk is structured as a decoupled client-server architecture:
 graph TD;
     Client[Next.js Frontend] --> |REST API| API[FastAPI Backend];
     ChromeExt[Chrome Extension] --> |REST API| API;
-    API --> |Celery Task Queue| Redis[(Redis Broker)];
-    Redis --> |Consume| CeleryWorker[Celery Background Worker];
-    CeleryWorker --> |Diskless Uploads & URL Scraping| Loader[Data Loader & WebBaseLoader];
-    CeleryWorker --> |SQL| DB[(PostgreSQL metadata)];
+    API --> |Diskless Uploads & URL Scraping| Loader[Data Loader & WebBaseLoader];
+    API --> |SQL| DB[(PostgreSQL metadata)];
     Loader --> |Text Embeddings| Qdrant[(Qdrant Vectors)];
     API --> |Query| LangGraph[LangGraph Agent];
     LangGraph --> |Semantic Search| Qdrant;
@@ -47,7 +44,7 @@ A Manifest V3 Chrome Extension is provided to allow users to instantly scrape an
 The backend `api.py` acts as the main controller. It uses standard Pydantic models for request/response validation.
 - **CORS**: Configured to accept traffic from `http://localhost:3000` and `chrome-extension://*`.
 - **Statelessness**: The backend maintains no disk state. All uploaded files are stored temporarily via Python's `NamedTemporaryFile` and deleted inside `finally` blocks after processing.
-- **Asynchronous Processing**: Heavy lifting like file parsing, web scraping (`WebBaseLoader`), and vector embedding are delegated to Celery background workers via Redis to prevent HTTP blocking.
+- **Synchronous Processing**: File parsing, web scraping (`WebBaseLoader`), and vector embedding are processed synchronously within the FastAPI request lifecycle to guarantee immediate availability in the knowledge base.
 
 ### 2.4 Data Ingestion Pipeline (`src/data_loader.py` & `src/embedding.py`)
 When a file is uploaded or a URL is scraped:
@@ -81,12 +78,11 @@ Uses **LangGraph** to build a reliable conversational agent state machine.
 ### Document Upload Lifecycle
 1. User drags `report.pdf` into Next.js UI (or clicks "Scrape" in Chrome Extension).
 2. HTTP POST multipart/form-data to FastAPI `/api/upload` (or JSON to `/api/upload-url`).
-3. `api.py` delegates a background Celery task to the Redis broker, returning HTTP 200 OK to the client immediately.
-4. A Celery Worker picks up the task from Redis.
-5. If file: `api.py` streams file into a temporary tempfile, and `data_loader.py` parses it. If URL: `WebBaseLoader` fetches the page content.
-6. `db.py` creates or updates a record in Postgres.
-7. `vectorstore.py` chunks the documents, embeds them via SentenceTransformers, and upserts them to Qdrant.
-8. Tempfile is explicitly unlinked (deleted) from disk.
+3. `api.py` streams file into a temporary tempfile, and `data_loader.py` parses it. If URL: `WebBaseLoader` fetches the page content.
+4. `db.py` creates or updates a record in Postgres.
+5. `vectorstore.py` chunks the documents, embeds them via SentenceTransformers, and upserts them to Qdrant.
+6. Tempfile is explicitly unlinked (deleted) from disk.
+7. API responds with HTTP 200 OK to the client, and the frontend instantly refreshes the Knowledge Base.
 
 ### Chat & Query Lifecycle
 1. User submits query "Summarize the report" in the UI.

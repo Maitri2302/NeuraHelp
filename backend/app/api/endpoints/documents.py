@@ -13,7 +13,7 @@ from app.models.schemas import UrlUploadRequest
 router = APIRouter()
 
 @router.post("/upload")
-async def upload_document(background_tasks: BackgroundTasks, file: UploadFile = File(...), document_type: str = Form(...), current_user: dict = Depends(get_current_user)):
+async def upload_document(file: UploadFile = File(...), document_type: str = Form(...), current_user: dict = Depends(get_current_user)):
     user_id = str(current_user["id"])
     ext = os.path.splitext(file.filename)[1]
     with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as temp_file:
@@ -26,18 +26,22 @@ async def upload_document(background_tasks: BackgroundTasks, file: UploadFile = 
             
     file_size = os.path.getsize(temp_file_path)
     
-    # Dispatch Celery background task
-    process_document_task.delay(temp_file_path, file.filename, user_id, file_size)
+    # Process document synchronously instead of using BackgroundTasks
+    from app.tasks.document_tasks import process_document_task
+    result = process_document_task(temp_file_path, file.filename, user_id, file_size)
     
-    return {"message": f"Successfully queued {file.filename} for processing", "filename": file.filename}
+    if result.get("message") != "success":
+        raise HTTPException(status_code=500, detail="Failed to process document")
+        
+    return {"message": f"Successfully processed and indexed {file.filename}", "filename": file.filename}
 
 @router.post("/upload-url")
 async def upload_url(request: UrlUploadRequest, background_tasks: BackgroundTasks, current_user: dict = Depends(get_current_user)):
     user_id = str(current_user["id"])
     url = request.url
     
-    # Dispatch Celery background task
-    process_url_task.delay(url, user_id)
+    # Dispatch FastAPI background task instead of Celery
+    background_tasks.add_task(process_url_task, url, user_id)
     
     return {"message": f"Successfully queued {url} for processing", "filename": url}
 
@@ -46,7 +50,7 @@ async def list_documents(current_user: dict = Depends(get_current_user)):
     try:
         conn = get_db_connection()
         cursor = conn.cursor(cursor_factory=RealDictCursor)
-        cursor.execute("SELECT filename, size, uploaded_at FROM documents WHERE user_id = %s ORDER BY uploaded_at DESC", (str(current_user["id"]),))
+        cursor.execute("SELECT filename, size, summary, uploaded_at FROM documents WHERE user_id = %s ORDER BY uploaded_at DESC", (str(current_user["id"]),))
         docs = cursor.fetchall()
         cursor.close()
         conn.close()

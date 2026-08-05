@@ -56,15 +56,27 @@ async def unified_search(request: SearchRequest, current_user: dict = Depends(ge
         
     texts = [res["text"] for res in final_results if res.get("text")]
     context = "\n\n".join(texts)
-    try:
-        from langchain_core.messages import HumanMessage
-        config = {"configurable": {"thread_id": f"search_tab_{user_id}_{uuid.uuid4()}"}}
-        input_message = HumanMessage(content=request.query)
-        # Assuming search.py is modified to pass username to the graph state if supported, or we just rely on rag_search logic
-        state = get_rag_search().graph.invoke({"messages": [input_message], "context": context, "username": current_user["username"]}, config)
-        answer = state["messages"][-1].content
-    except Exception as e:
-        print(f"[ERROR] LLM synthesis failed in search: {e}")
-        answer = "Sorry, I could not synthesize an answer from the documents at this time."
-        
+    
+    from app.core.cache import semantic_cache
+    cached_answer = semantic_cache.check(request.query, user_id)
+    if cached_answer:
+        answer = cached_answer
+    else:
+        try:
+            from langchain_core.messages import HumanMessage, SystemMessage
+            
+            system_prompt = f"You are an AI assistant. The user's name is {current_user['username']}. Answer the user's question using only the provided context. If the context does not contain the answer, say you don't know.\n\nContext:\n{context}"
+            messages_for_llm = [SystemMessage(content=system_prompt), HumanMessage(content=request.query)]
+            
+            response = await get_rag_search().llm.ainvoke(messages_for_llm)
+            answer = response.content
+            
+            if final_results:
+                semantic_cache.store(request.query, answer, user_id)
+        except Exception as e:
+            import traceback
+            print(f"[ERROR] LLM synthesis failed in search: {e}")
+            traceback.print_exc()
+            answer = "Sorry, I could not synthesize an answer from the documents at this time."
+            
     return {"results": final_results, "answer": answer}

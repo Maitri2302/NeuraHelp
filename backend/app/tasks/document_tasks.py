@@ -5,19 +5,35 @@ from app.core.data_loader import load_single_document
 from app.db.database import get_db_connection
 from app.core.search import RAGSearch
 from langchain_community.document_loaders import WebBaseLoader
+from langchain_groq import ChatGroq
+from app.core.config import settings
 
-@celery_app.task(bind=True)
-def process_document_task(self, temp_file_path: str, filename: str, user_id: str, file_size: int):
+def generate_summary(documents) -> str:
+    if not documents:
+        return ""
+    try:
+        text = "\n\n".join([doc.page_content for doc in documents])
+        llm = ChatGroq(groq_api_key=settings.GROQ_API_KEY, model_name="llama-3.3-70b-versatile")
+        prompt = f"Please provide a short, concise 2-3 sentence summary of the following document:\n\n{text[:15000]}"
+        response = llm.invoke(prompt)
+        return response.content
+    except Exception as e:
+        print(f"[ERROR] Summarization failed: {e}")
+        return ""
+
+def process_document_task(temp_file_path: str, filename: str, user_id: str, file_size: int):
     try:
         print(f"[CELERY] Starting to process document: {filename} for user: {user_id}")
         
         # Load and parse the document
         documents = load_single_document(temp_file_path, filename)
         
+        summary = ""
         if documents:
             # We initialize a new RAGSearch instance so it handles its own Qdrant connection pool in this worker
             rag = RAGSearch()
             rag.vectorstore.add_documents(documents, filename, user_id)
+            summary = generate_summary(documents)
             
         # Update PostgreSQL
         conn = get_db_connection()
@@ -25,11 +41,11 @@ def process_document_task(self, temp_file_path: str, filename: str, user_id: str
         doc_id = str(uuid.uuid4())
         cursor.execute(
             """
-            INSERT INTO documents (id, user_id, filename, file_path, size) 
-            VALUES (%s, %s, %s, %s, %s) 
-            ON CONFLICT (user_id, filename) DO UPDATE SET size = EXCLUDED.size, uploaded_at = CURRENT_TIMESTAMP
+            INSERT INTO documents (id, user_id, filename, file_path, size, summary) 
+            VALUES (%s, %s, %s, %s, %s, %s) 
+            ON CONFLICT (user_id, filename) DO UPDATE SET size = EXCLUDED.size, summary = EXCLUDED.summary, uploaded_at = CURRENT_TIMESTAMP
             """,
-            (doc_id, user_id, filename, "diskless", file_size)
+            (doc_id, user_id, filename, "diskless", file_size, summary)
         )
         conn.commit()
         cursor.close()
@@ -47,8 +63,7 @@ def process_document_task(self, temp_file_path: str, filename: str, user_id: str
             
     return {"message": "success", "filename": filename}
 
-@celery_app.task(bind=True)
-def process_url_task(self, url: str, user_id: str):
+def process_url_task(url: str, user_id: str):
     try:
         print(f"[CELERY] Starting to process URL: {url} for user: {user_id}")
         
@@ -56,6 +71,7 @@ def process_url_task(self, url: str, user_id: str):
         loader = WebBaseLoader(url)
         documents = loader.load()
         
+        summary = ""
         if documents:
             # Add source metadata just in case
             for doc in documents:
@@ -63,6 +79,7 @@ def process_url_task(self, url: str, user_id: str):
                 
             rag = RAGSearch()
             rag.vectorstore.add_documents(documents, url, user_id)
+            summary = generate_summary(documents)
             
         # Update PostgreSQL
         conn = get_db_connection()
@@ -73,11 +90,11 @@ def process_url_task(self, url: str, user_id: str):
         
         cursor.execute(
             """
-            INSERT INTO documents (id, user_id, filename, file_path, size) 
-            VALUES (%s, %s, %s, %s, %s) 
-            ON CONFLICT (user_id, filename) DO UPDATE SET size = EXCLUDED.size, uploaded_at = CURRENT_TIMESTAMP
+            INSERT INTO documents (id, user_id, filename, file_path, size, summary) 
+            VALUES (%s, %s, %s, %s, %s, %s) 
+            ON CONFLICT (user_id, filename) DO UPDATE SET size = EXCLUDED.size, summary = EXCLUDED.summary, uploaded_at = CURRENT_TIMESTAMP
             """,
-            (doc_id, user_id, url, "url", file_size)
+            (doc_id, user_id, url, "url", file_size, summary)
         )
         conn.commit()
         cursor.close()

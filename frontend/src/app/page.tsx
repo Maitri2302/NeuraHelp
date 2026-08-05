@@ -13,7 +13,7 @@ export default function Home() {
   // Modals and Shared State
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showSearchModal, setShowSearchModal] = useState(false);
-  const [documents, setDocuments] = useState<{ filename: string; size: number }[]>([]);
+  const [documents, setDocuments] = useState<{ filename: string; size: number; summary?: string }[]>([]);
   const [isLoadingDocs, setIsLoadingDocs] = useState(false);
   
   const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
@@ -109,13 +109,7 @@ export default function Home() {
         <UploadModal 
           onClose={() => setShowUploadModal(false)} 
           onUploadSuccess={() => {
-            // Poll for a few seconds to let Celery finish indexing
-            let attempts = 0;
-            const interval = setInterval(() => {
-              fetchDocuments();
-              attempts++;
-              if (attempts >= 4) clearInterval(interval);
-            }, 2000);
+            fetchDocuments();
           }}
         />
       )}
