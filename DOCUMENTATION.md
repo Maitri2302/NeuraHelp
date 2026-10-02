@@ -1,10 +1,10 @@
-# NeuraDesk Architecture & Documentation
+# NeuraHelp Architecture & Documentation
 
 This document provides a comprehensive technical overview of the NeuraDesk (Python-RAG) architecture, component interactions, and data flow.
 
 ## 1. System Architecture Overview
 
-NeuraDesk is structured as a decoupled client-server architecture:
+NeuraHelp is structured as a decoupled client-server architecture:
 - **Client**: Next.js single-page application (SPA) and Google Chrome Extension.
 - **API Gateway**: FastAPI server handling REST requests and synchronous document processing.
 - **AI/RAG Engine**: LangGraph and Groq-powered synthesis engine.
