@@ -1,6 +1,6 @@
 # NeuraHelp Architecture & Documentation
 
-This document provides a comprehensive technical overview of the NeuraDesk (Python-RAG) architecture, component interactions, and data flow.
+This document provides a comprehensive technical overview of the NeuraHelp (Python-RAG) architecture, component interactions, and data flow.
 
 ## 1. System Architecture Overview
 
